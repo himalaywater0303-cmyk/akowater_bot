@@ -121,3 +121,10 @@ def handler(message):
 
 print("Bot ishga tushdi...")
 bot.infinity_polling()
+
+from telegram.ext import CommandHandler
+
+async def show_id(update, context):
+    await update.message.reply_text(str(update.effective_chat.id))
+
+application.add_handler(CommandHandler("id", show_id))
