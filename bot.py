@@ -128,3 +128,10 @@ async def show_id(update, context):
     await update.message.reply_text(str(update.effective_chat.id))
 
 application.add_handler(CommandHandler("id", show_id))
+
+from telegram.ext import CommandHandler
+
+async def show_id(update, context):
+    await update.message.reply_text(f"Chat ID: {update.effective_chat.id}")
+
+application.add_handler(CommandHandler("id", show_id))
