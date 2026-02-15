@@ -211,7 +211,15 @@ def send_excel(message):
 # ===== QABUL QILINDI =====
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_"))
 def accept_order(call):
-    bot.answer_callback_query(call.id, "✅ Buyurtma qabul qilindi")
-    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+    order_id = call.data.split("_")[1]
 
-bot.infinity_polling()
+    new_text = call.message.text + "\n\n✅ <b>Status:</b> Qabul qilindi"
+
+    bot.edit_message_text(
+        new_text,
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode="HTML"
+    )
+
+    bot.answer_callback_query(call.id, "Buyurtma tasdiqlandi ✅")
