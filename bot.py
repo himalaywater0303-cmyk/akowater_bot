@@ -223,3 +223,4 @@ def accept_order(call):
     )
 
     bot.answer_callback_query(call.id, "Buyurtma tasdiqlandi ✅")
+    bot.infinity_polling()
