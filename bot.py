@@ -5,13 +5,16 @@ import re
 from datetime import datetime
 import random
 
-TOKEN = "BOT_TOKENINGIZNI_QOYING"
-GROUP_ID = -100XXXXXXXXXX  # gruppa id
+# ================== SOZLAMALAR ==================
+TOKEN = "8427218470:AAF9_sdfcFOJQcq5n34tkpKcMhh8Lxd5JXc"
+GROUP_ID = -1003852199617
+ADMIN_ID = 1028958055
+# ================================================
 
 bot = telebot.TeleBot(TOKEN)
 
-# ---------------- DATABASE ----------------
-conn = sqlite3.connect("users.db", check_same_thread=False)
+# ================= DATABASE =====================
+conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
@@ -22,9 +25,21 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS orders (
+    order_id INTEGER,
+    user_id INTEGER,
+    product TEXT,
+    quantity INTEGER,
+    price INTEGER,
+    address TEXT,
+    status TEXT
+)
+""")
+
 conn.commit()
 
-# ---------------- MAHSULOTLAR ----------------
+# ================= MAHSULOTLAR ==================
 products = {
     "💧 19L Suv": 25000,
     "💧 10L Suv": 15000,
@@ -33,12 +48,11 @@ products = {
 
 user_data = {}
 
-# ---------------- START ----------------
+# ================= START ========================
 @bot.message_handler(commands=['start'])
 def start(message):
-    user_id = message.from_user.id
-
-    cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+    cursor.execute("SELECT * FROM users WHERE user_id=?",
+                   (message.from_user.id,))
     user = cursor.fetchone()
 
     if user:
@@ -48,23 +62,22 @@ def start(message):
                          "Assalamu aleykum akowater buyurtma botiga xush kelibsiz\n\nIsmingizni kiriting:")
         bot.register_next_step_handler(message, get_name)
 
-# ---------------- NAME ----------------
+# ================= ISM ==========================
 def get_name(message):
     user_data[message.chat.id] = {}
     user_data[message.chat.id]["name"] = message.text
     bot.send_message(message.chat.id, "Raqamingizni kiriting:")
     bot.register_next_step_handler(message, get_phone)
 
-# ---------------- PHONE VALIDATION ----------------
+# ================= TELEFON VALIDATION ===========
 def get_phone(message):
     phone = message.text.strip()
 
     if not re.match(r'^\d{7,15}$', phone):
-        bot.send_message(message.chat.id, "❗ Raqamni to‘g‘ri kiriting (faqat son).")
+        bot.send_message(message.chat.id,
+                         "❗ Raqamni to‘g‘ri kiriting (faqat son).")
         bot.register_next_step_handler(message, get_phone)
         return
-
-    user_data[message.chat.id]["phone"] = phone
 
     cursor.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?)",
                    (message.from_user.id,
@@ -74,7 +87,7 @@ def get_phone(message):
 
     send_menu(message)
 
-# ---------------- MENU ----------------
+# ================= MENU =========================
 def send_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
 
@@ -85,7 +98,7 @@ def send_menu(message):
                      "Menyu: qaysi mahsulotimizga buyurtma bermoqchisiz?",
                      reply_markup=markup)
 
-# ---------------- PRODUCT ----------------
+# ================= MAHSULOT TANLASH =============
 @bot.message_handler(func=lambda message: message.text in products)
 def get_quantity(message):
     user_data[message.chat.id] = {}
@@ -94,10 +107,11 @@ def get_quantity(message):
     bot.send_message(message.chat.id, "Nechta?")
     bot.register_next_step_handler(message, calculate_price)
 
-# ---------------- QUANTITY ----------------
+# ================= SON ==========================
 def calculate_price(message):
     if not message.text.isdigit():
-        bot.send_message(message.chat.id, "❗ Iltimos son kiriting.")
+        bot.send_message(message.chat.id,
+                         "❗ Iltimos son kiriting.")
         bot.register_next_step_handler(message, calculate_price)
         return
 
@@ -112,19 +126,32 @@ def calculate_price(message):
                      f"Hisob narxi: {price:,} so‘m\n\nManzilingizni kiriting:")
     bot.register_next_step_handler(message, finish_order)
 
-# ---------------- FINISH ----------------
+# ================= YAKUN ========================
 def finish_order(message):
     address = message.text
-    user_data[message.chat.id]["address"] = address
-
     order_id = random.randint(10000, 99999)
 
-    # GROUPGA CHIROYLI FORMAT
+    cursor.execute("SELECT name, phone FROM users WHERE user_id=?",
+                   (message.from_user.id,))
+    user = cursor.fetchone()
+
+    cursor.execute("""
+    INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (order_id,
+          message.from_user.id,
+          user_data[message.chat.id]["product"],
+          user_data[message.chat.id]["quantity"],
+          user_data[message.chat.id]["price"],
+          address,
+          "Yangi"))
+
+    conn.commit()
+
     group_text = f"""
 🆕 YANGI BUYURTMA #{order_id}
 
-👤 Ism: {message.from_user.first_name}
-📞 Telefon: {cursor.execute("SELECT phone FROM users WHERE user_id=?", (message.from_user.id,)).fetchone()[0]}
+👤 Ism: {user[0]}
+📞 Telefon: {user[1]}
 
 🛒 Mahsulot: {user_data[message.chat.id]['product']}
 📦 Soni: {user_data[message.chat.id]['quantity']}
@@ -132,11 +159,16 @@ def finish_order(message):
 
 📍 Manzil: {address}
 
-⏰ Vaqt: {datetime.now().strftime("%d-%m-%Y %H:%M")}
+⏰ {datetime.now().strftime("%d-%m-%Y %H:%M")}
 """
 
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("✅ Qabul qilindi", callback_data=f"accept_{order_id}"))
+    markup.add(
+        types.InlineKeyboardButton("✅ Qabul qilindi",
+                                   callback_data=f"accept_{order_id}"),
+        types.InlineKeyboardButton("❌ Bekor qilindi",
+                                   callback_data=f"cancel_{order_id}")
+    )
 
     bot.send_message(GROUP_ID, group_text, reply_markup=markup)
 
@@ -145,17 +177,46 @@ def finish_order(message):
 
     send_menu(message)
 
-# ---------------- CALLBACK ----------------
-@bot.callback_query_handler(func=lambda call: call.data.startswith("accept_"))
-def accept_order(call):
-    bot.answer_callback_query(call.id, "Buyurtma qabul qilindi!")
+# ================= CALLBACK =====================
+@bot.callback_query_handler(func=lambda call: True)
+def callback(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "Faqat admin!")
+        return
+
+    action, order_id = call.data.split("_")
+
+    if action == "accept":
+        status = "Qabul qilindi"
+    else:
+        status = "Bekor qilindi"
+
+    cursor.execute("UPDATE orders SET status=? WHERE order_id=?",
+                   (status, order_id))
+    conn.commit()
 
     bot.edit_message_reply_markup(call.message.chat.id,
                                   call.message.message_id,
                                   reply_markup=None)
 
     bot.send_message(call.message.chat.id,
-                     f"✅ {call.data.split('_')[1]} buyurtma qabul qilindi.")
+                     f"📦 Buyurtma #{order_id} — {status}")
 
-# ---------------- RUN ----------------
+# ================= ADMIN PANEL ==================
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    cursor.execute("SELECT * FROM orders ORDER BY rowid DESC LIMIT 10")
+    orders = cursor.fetchall()
+
+    text = "📊 Oxirgi 10 ta buyurtma:\n\n"
+
+    for order in orders:
+        text += f"#{order[0]} | {order[2]} | {order[6]}\n"
+
+    bot.send_message(message.chat.id, text)
+
+# ================= RUN ==========================
 bot.polling()
