@@ -9,9 +9,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_TOKEN = os.getenv("8427218470:AAF9_sdfcFOJQcq5n34tkpKcMhh8Lxd5JXc")
-GROUP_ID = int(os.getenv("-1003852199617"))
-ADMIN_ID = int(os.getenv("1028958055"))
+API_TOKEN = os.getenv("BOT_TOKEN")
+GROUP_ID = int(os.getenv("GROUP_ID"))
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 logging.basicConfig(level=logging.INFO)
 
