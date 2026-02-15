@@ -1,118 +1,114 @@
 import telebot
 from telebot import types
-import sqlite3
-import re
-from datetime import datetime
 import random
+import openpyxl
+from datetime import datetime
 
-# ================== SOZLAMALAR ==================
 TOKEN = "8427218470:AAF9_sdfcFOJQcq5n34tkpKcMhh8Lxd5JXc"
 GROUP_ID = -1003852199617
 ADMIN_ID = 1028958055
-# ================================================
 
 bot = telebot.TeleBot(TOKEN)
 
-# ================= DATABASE =====================
-conn = sqlite3.connect("database.db", check_same_thread=False)
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    name TEXT,
-    phone TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS orders (
-    order_id INTEGER,
-    user_id INTEGER,
-    product TEXT,
-    quantity INTEGER,
-    price INTEGER,
-    address TEXT,
-    status TEXT
-)
-""")
-
-conn.commit()
-
-# ================= MAHSULOTLAR ==================
-products = {
-    "💧 19L Suv": 25000,
-    "💧 10L Suv": 15000,
-    "💧 5L Suv": 6000
-}
-
+user_step = {}
 user_data = {}
 
-# ================= START ========================
+# ===== MAHSULOTLAR =====
+products = {
+    "💧 5L Suv": 6000,
+    "💧 10L Suv": 8000,
+    "💧 18.9L Suv": 15000
+}
+
+# ===== EXCEL =====
+def save_to_excel(order):
+    try:
+        wb = openpyxl.load_workbook("buyurtmalar.xlsx")
+    except:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["ID", "Ism", "Raqam", "Mahsulot", "Soni", "Narx", "Manzil", "Sana"])
+
+    ws = wb.active
+    ws.append(order)
+    wb.save("buyurtmalar.xlsx")
+
+# ===== START =====
 @bot.message_handler(commands=['start'])
 def start(message):
-    cursor.execute("SELECT * FROM users WHERE user_id=?",
-                   (message.from_user.id,))
-    user = cursor.fetchone()
+    chat_id = message.chat.id
 
-    if user:
-        send_menu(message)
-    else:
-        bot.send_message(message.chat.id,
-                         "Assalamu aleykum akowater buyurtma botiga xush kelibsiz\n\nIsmingizni kiriting:")
-        bot.register_next_step_handler(message, get_name)
-
-# ================= ISM ==========================
-def get_name(message):
-    user_data[message.chat.id] = {}
-    user_data[message.chat.id]["name"] = message.text
-    bot.send_message(message.chat.id, "Raqamingizni kiriting:")
-    bot.register_next_step_handler(message, get_phone)
-
-# ================= TELEFON VALIDATION ===========
-def get_phone(message):
-    phone = message.text.strip()
-
-    if not re.match(r'^\d{7,15}$', phone):
-        bot.send_message(message.chat.id,
-                         "❗ Raqamni to‘g‘ri kiriting (faqat son).")
-        bot.register_next_step_handler(message, get_phone)
+    if chat_id in user_data:
+        show_menu(chat_id)
         return
 
-    cursor.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?)",
-                   (message.from_user.id,
-                    user_data[message.chat.id]["name"],
-                    phone))
-    conn.commit()
+    user_data[chat_id] = {}
+    user_step[chat_id] = "name"
 
-    send_menu(message)
+    bot.send_message(
+        chat_id,
+        "💧 Assalamu aleykum!\n\n"
+        "AKOWATER botiga xush kelibsiz.\n\n"
+        "Ismingizni kiriting:"
+    )
 
-# ================= MENU =========================
-def send_menu(message):
+# ===== ISM =====
+@bot.message_handler(func=lambda m: user_step.get(m.chat.id) == "name")
+def get_name(message):
+    user_data[message.chat.id]["name"] = message.text
+    user_step[message.chat.id] = "phone"
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    btn = types.KeyboardButton("📱 Raqamni yuborish", request_contact=True)
+    markup.add(btn)
+
+    bot.send_message(
+        message.chat.id,
+        "📱 Telefon raqamingizni yuboring:",
+        reply_markup=markup
+    )
+
+# ===== TELEFON (MAJBURIY) =====
+@bot.message_handler(content_types=['contact'])
+def get_phone(message):
+    if user_step.get(message.chat.id) != "phone":
+        return
+
+    user_data[message.chat.id]["phone"] = message.contact.phone_number
+    user_step[message.chat.id] = "product"
+
+    bot.send_message(message.chat.id, "✅ Raqam qabul qilindi.", reply_markup=types.ReplyKeyboardRemove())
+    show_menu(message.chat.id)
+
+@bot.message_handler(func=lambda m: user_step.get(m.chat.id) == "phone")
+def block_text_phone(message):
+    bot.send_message(message.chat.id, "❗ Pastdagi tugma orqali raqam yuboring.")
+
+# ===== MENU =====
+def show_menu(chat_id):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    for p in products:
+        markup.add(p)
 
-    for product in products:
-        markup.add(product)
+    bot.send_message(
+        chat_id,
+        "💧 Mahsulotni tanlang:",
+        reply_markup=markup
+    )
 
-    bot.send_message(message.chat.id,
-                     "Menyu: qaysi mahsulotimizga buyurtma bermoqchisiz?",
-                     reply_markup=markup)
-
-# ================= MAHSULOT TANLASH =============
-@bot.message_handler(func=lambda message: message.text in products)
-def get_quantity(message):
-    user_data[message.chat.id] = {}
+# ===== MAHSULOT TANLASH =====
+@bot.message_handler(func=lambda m: m.text in products)
+def select_product(message):
     user_data[message.chat.id]["product"] = message.text
+    user_step[message.chat.id] = "quantity"
 
-    bot.send_message(message.chat.id, "Nechta?")
-    bot.register_next_step_handler(message, calculate_price)
+    bot.send_message(message.chat.id, "📦 Nechta dona kerak?")
 
-# ================= SON ==========================
-def calculate_price(message):
+# ===== SONI =====
+@bot.message_handler(func=lambda m: user_step.get(m.chat.id) == "quantity")
+def get_quantity(message):
     if not message.text.isdigit():
-        bot.send_message(message.chat.id,
-                         "❗ Iltimos son kiriting.")
-        bot.register_next_step_handler(message, calculate_price)
+        bot.send_message(message.chat.id, "❗ Faqat son kiriting.")
         return
 
     quantity = int(message.text)
@@ -121,102 +117,101 @@ def calculate_price(message):
 
     user_data[message.chat.id]["quantity"] = quantity
     user_data[message.chat.id]["price"] = price
+    user_step[message.chat.id] = "address"
 
-    bot.send_message(message.chat.id,
-                     f"Hisob narxi: {price:,} so‘m\n\nManzilingizni kiriting:")
-    bot.register_next_step_handler(message, finish_order)
+    bot.send_message(
+        message.chat.id,
+        f"💰 Hisob narxi: {price:,} so‘m\n\n📍 Manzilingizni kiriting:"
+    )
 
-# ================= YAKUN ========================
+# ===== MANZIL VA YUBORISH =====
+@bot.message_handler(func=lambda m: user_step.get(m.chat.id) == "address")
 def finish_order(message):
     address = message.text
+    chat_id = message.chat.id
+
+    user_data[chat_id]["address"] = address
     order_id = random.randint(10000, 99999)
 
-    cursor.execute("SELECT name, phone FROM users WHERE user_id=?",
-                   (message.from_user.id,))
-    user = cursor.fetchone()
+    data = user_data[chat_id]
 
-    cursor.execute("""
-    INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (order_id,
-          message.from_user.id,
-          user_data[message.chat.id]["product"],
-          user_data[message.chat.id]["quantity"],
-          user_data[message.chat.id]["price"],
-          address,
-          "Yangi"))
+    text = f"""
+🆕 <b>YANGI BUYURTMA #{order_id}</b>
 
-    conn.commit()
+┏━━━━━━━━━━━━━━━┓
+💧 <b>AKOWATER</b>
+┗━━━━━━━━━━━━━━━┛
 
-    group_text = f"""
-🆕 YANGI BUYURTMA #{order_id}
+👤 Ism: {data['name']}
+📱 Tel: {data['phone']}
 
-👤 Ism: {user[0]}
-📞 Telefon: {user[1]}
-
-🛒 Mahsulot: {user_data[message.chat.id]['product']}
-📦 Soni: {user_data[message.chat.id]['quantity']}
-💰 Narxi: {user_data[message.chat.id]['price']:,} so‘m
+🛒 Mahsulot: {data['product']}
+📦 Soni: {data['quantity']}
+💰 Narxi: {data['price']:,} so‘m
 
 📍 Manzil: {address}
-
 ⏰ {datetime.now().strftime("%d-%m-%Y %H:%M")}
 """
 
     markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("✅ Qabul qilindi",
-                                   callback_data=f"accept_{order_id}"),
-        types.InlineKeyboardButton("❌ Bekor qilindi",
-                                   callback_data=f"cancel_{order_id}")
-    )
+    markup.add(types.InlineKeyboardButton("✅ Qabul qilindi", callback_data=f"accept_{order_id}"))
 
-    bot.send_message(GROUP_ID, group_text, reply_markup=markup)
+    bot.send_message(GROUP_ID, text, parse_mode="HTML", reply_markup=markup)
 
-    bot.send_message(message.chat.id,
-                     "✅ Buyurtmangiz qabul qilindi.\nOperatorlarimiz tez orada siz bilan bog‘lanishadi.")
+    save_to_excel([
+        order_id,
+        data["name"],
+        data["phone"],
+        data["product"],
+        data["quantity"],
+        data["price"],
+        address,
+        datetime.now().strftime("%d-%m-%Y %H:%M")
+    ])
 
-    send_menu(message)
+    bot.send_message(chat_id, "✅ Buyurtmangiz qabul qilindi!\nTez orada bog‘lanamiz.")
+    show_menu(chat_id)
 
-# ================= CALLBACK =====================
-@bot.callback_query_handler(func=lambda call: True)
-def callback(call):
-    if call.from_user.id != ADMIN_ID:
-        bot.answer_callback_query(call.id, "Faqat admin!")
-        return
-
-    action, order_id = call.data.split("_")
-
-    if action == "accept":
-        status = "Qabul qilindi"
-    else:
-        status = "Bekor qilindi"
-
-    cursor.execute("UPDATE orders SET status=? WHERE order_id=?",
-                   (status, order_id))
-    conn.commit()
-
-    bot.edit_message_reply_markup(call.message.chat.id,
-                                  call.message.message_id,
-                                  reply_markup=None)
-
-    bot.send_message(call.message.chat.id,
-                     f"📦 Buyurtma #{order_id} — {status}")
-
-# ================= ADMIN PANEL ==================
+# ===== ADMIN PANEL =====
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if message.from_user.id != ADMIN_ID:
         return
 
-    cursor.execute("SELECT * FROM orders ORDER BY rowid DESC LIMIT 10")
-    orders = cursor.fetchall()
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("📊 Statistika", "📁 Excel yuklash")
 
-    text = "📊 Oxirgi 10 ta buyurtma:\n\n"
+    bot.send_message(message.chat.id, "👑 Admin panel:", reply_markup=markup)
 
-    for order in orders:
-        text += f"#{order[0]} | {order[2]} | {order[6]}\n"
+@bot.message_handler(func=lambda m: m.text == "📊 Statistika")
+def stats(message):
+    if message.from_user.id != ADMIN_ID:
+        return
 
-    bot.send_message(message.chat.id, text)
+    try:
+        wb = openpyxl.load_workbook("buyurtmalar.xlsx")
+        ws = wb.active
+        total = ws.max_row - 1
+    except:
+        total = 0
 
-# ================= RUN ==========================
-bot.polling()
+    bot.send_message(message.chat.id, f"📦 Jami buyurtmalar: {total}")
+
+@bot.message_handler(func=lambda m: m.text == "📁 Excel yuklash")
+def send_excel(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        file = open("buyurtmalar.xlsx", "rb")
+        bot.send_document(message.chat.id, file)
+    except:
+        bot.send_message(message.chat.id, "❗ Excel fayl topilmadi.")
+
+# ===== QABUL QILINDI =====
+@bot.callback_query_handler(func=lambda call: call.data.startswith("accept_"))
+def accept_order(call):
+    bot.answer_callback_query(call.id, "✅ Buyurtma qabul qilindi")
+    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+
+bot.infinity_polling()
