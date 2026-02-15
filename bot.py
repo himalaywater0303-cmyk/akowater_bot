@@ -1,101 +1,95 @@
 import logging
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    ConversationHandler,
-    filters,
-)
+from aiogram import Bot, Dispatcher, executor, types
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
 
-# ====== O'ZGARTIRING ======
-BOT_TOKEN = "8427218470:AAF9_sdfcFOJQcq5n34tkpKcMhh8Lxd5JXc"
-GROUP_ID = -1003852199617  # Guruh ID
-# ===========================
+API_TOKEN = "8427218470:AAF9_sdfcFOJQcq5n34tkpKcMhh8Lxd5JXc"
+GROUP_ID = -1003852199617  # Guruh ID ni yozing
 
 logging.basicConfig(level=logging.INFO)
 
-NAME, PRODUCT, QUANTITY, LOCATION, PHONE = range(5)
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot, storage=MemoryStorage())
 
-products = {
-    "5L - 6000 so'm": "5L",
-    "10L - 8000 so'm": "10L",
-    "18.9L - 15000 so'm": "18.9L",
-}
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Assalomu alaykum! Ismingizni kiriting:")
-    return NAME
+# ====== HOLATLAR ======
+class OrderState(StatesGroup):
+    name = State()
+    product = State()
+    quantity = State()
+    location = State()
+    phone = State()
 
-async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["name"] = update.message.text
 
-    keyboard = [[p] for p in products.keys()]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+# ====== START ======
+@dp.message_handler(commands='start')
+async def start_handler(message: types.Message):
+    await message.answer("Assalomu alaykum! Ismingizni kiriting:")
+    await OrderState.name.set()
 
-    await update.message.reply_text(
-        "Qaysi mahsulotni tanlaysiz?",
-        reply_markup=reply_markup
-    )
-    return PRODUCT
 
-async def get_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["product"] = update.message.text
-    await update.message.reply_text("Nechta kerak?")
-    return QUANTITY
+# ====== ISM ======
+@dp.message_handler(state=OrderState.name)
+async def get_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
 
-async def get_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["quantity"] = update.message.text
-    await update.message.reply_text("Manzilingizni kiriting:")
-    return LOCATION
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add("5L - 6000 so'm")
+    keyboard.add("10L - 8000 so'm")
+    keyboard.add("18.9L - 15000 so'm")
 
-async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["location"] = update.message.text
-    await update.message.reply_text("Telefon raqamingizni kiriting:")
-    return PHONE
+    await message.answer("Qaysi mahsulotni tanlaysiz?", reply_markup=keyboard)
+    await OrderState.product.set()
 
-async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["phone"] = update.message.text
+
+# ====== MAHSULOT ======
+@dp.message_handler(state=OrderState.product)
+async def get_product(message: types.Message, state: FSMContext):
+    await state.update_data(product=message.text)
+    await message.answer("Nechta kerak?")
+    await OrderState.quantity.set()
+
+
+# ====== SONI ======
+@dp.message_handler(state=OrderState.quantity)
+async def get_quantity(message: types.Message, state: FSMContext):
+    await state.update_data(quantity=message.text)
+    await message.answer("Manzilingizni kiriting:")
+    await OrderState.location.set()
+
+
+# ====== MANZIL ======
+@dp.message_handler(state=OrderState.location)
+async def get_location(message: types.Message, state: FSMContext):
+    await state.update_data(location=message.text)
+    await message.answer("Telefon raqamingizni kiriting:")
+    await OrderState.phone.set()
+
+
+# ====== TELEFON ======
+@dp.message_handler(state=OrderState.phone)
+async def get_phone(message: types.Message, state: FSMContext):
+    await state.update_data(phone=message.text)
+    data = await state.get_data()
 
     order_text = f"""
 🚨 YANGI BUYURTMA
 
-👤 Ism: {context.user_data['name']}
-📦 Mahsulot: {context.user_data['product']}
-🔢 Soni: {context.user_data['quantity']}
-📍 Manzil: {context.user_data['location']}
-📞 Tel: {context.user_data['phone']}
+👤 Ism: {data['name']}
+📦 Mahsulot: {data['product']}
+🔢 Soni: {data['quantity']}
+📍 Manzil: {data['location']}
+📞 Tel: {data['phone']}
 """
 
     # Guruhga yuborish
-    await context.bot.send_message(chat_id=GROUP_ID, text=order_text)
+    await bot.send_message(GROUP_ID, order_text)
 
-    await update.message.reply_text("✅ Buyurtmangiz qabul qilindi!")
+    await message.answer("✅ Buyurtmangiz qabul qilindi!", reply_markup=types.ReplyKeyboardRemove())
 
-    return ConversationHandler.END
+    await state.finish()
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Buyurtma bekor qilindi.")
-    return ConversationHandler.END
 
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-            PRODUCT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_product)],
-            QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_quantity)],
-            LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_location)],
-            PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-
-    app.add_handler(conv_handler)
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)
