@@ -223,4 +223,9 @@ def accept_order(call):
     )
 
     bot.answer_callback_query(call.id, "Buyurtma tasdiqlandi ✅")
-    bot.infinity_polling()
+
+
+# ===== BOTNI ISHGA TUSHIRISH =====
+if __name__ == "__main__":
+    print("Bot ishga tushdi...")
+    bot.infinity_polling(skip_pending=True) 
