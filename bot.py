@@ -1,144 +1,101 @@
 import logging
-import os
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from dotenv import load_dotenv
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    ConversationHandler,
+    filters,
+)
 
-load_dotenv()
-
-API_TOKEN = os.getenv("8427218470:AAFNC81mmMl8d0op2xJzS7I8Vg5vOC8vPbo")
-ADMIN_ID = int(os.getenv("-1003852199617"))
+# ====== O'ZGARTIRING ======
+BOT_TOKEN = "8427218470:AAF9_sdfcFOJQcq5n34tkpKcMhh8Lxd5JXc"
+GROUP_ID = -1003852199617  # Guruh ID
+# ===========================
 
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+NAME, PRODUCT, QUANTITY, LOCATION, PHONE = range(5)
 
-prices = {
-    "5L": 6000,
-    "10L": 8000,
-    "18.9L": 15000
+products = {
+    "5L - 6000 so'm": "5L",
+    "10L - 8000 so'm": "10L",
+    "18.9L - 15000 so'm": "18.9L",
 }
 
-user_cart = {}
-user_data = {}
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Assalomu alaykum! Ismingizni kiriting:")
+    return NAME
 
-# MAIN MENU
-def main_menu():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("💧 Mahsulotlar")
-    kb.add("🛒 Savat")
-    kb.add("☎️ Aloqa")
-    return kb
+async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["name"] = update.message.text
 
-# START
-@dp.message_handler(commands=['start'])
-async def start_handler(message: types.Message):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("📞 Telefon raqam yuborish", request_contact=True))
-    
-    await message.answer(
-        "Assalomu alaykum!\n\nHurmatli mijoz 👋\nIltimos, telefon raqamingizni yuboring.",
-        reply_markup=kb
+    keyboard = [[p] for p in products.keys()]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    await update.message.reply_text(
+        "Qaysi mahsulotni tanlaysiz?",
+        reply_markup=reply_markup
+    )
+    return PRODUCT
+
+async def get_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["product"] = update.message.text
+    await update.message.reply_text("Nechta kerak?")
+    return QUANTITY
+
+async def get_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["quantity"] = update.message.text
+    await update.message.reply_text("Manzilingizni kiriting:")
+    return LOCATION
+
+async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["location"] = update.message.text
+    await update.message.reply_text("Telefon raqamingizni kiriting:")
+    return PHONE
+
+async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["phone"] = update.message.text
+
+    order_text = f"""
+🚨 YANGI BUYURTMA
+
+👤 Ism: {context.user_data['name']}
+📦 Mahsulot: {context.user_data['product']}
+🔢 Soni: {context.user_data['quantity']}
+📍 Manzil: {context.user_data['location']}
+📞 Tel: {context.user_data['phone']}
+"""
+
+    # Guruhga yuborish
+    await context.bot.send_message(chat_id=GROUP_ID, text=order_text)
+
+    await update.message.reply_text("✅ Buyurtmangiz qabul qilindi!")
+
+    return ConversationHandler.END
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Buyurtma bekor qilindi.")
+    return ConversationHandler.END
+
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
+            PRODUCT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_product)],
+            QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_quantity)],
+            LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_location)],
+            PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-# CONTACT SAVE
-@dp.message_handler(content_types=types.ContentType.CONTACT)
-async def contact_handler(message: types.Message):
-    user_data[message.from_user.id] = {
-        "phone": message.contact.phone_number,
-        "username": message.from_user.username
-    }
-    
-    await message.answer(
-        "Rahmat ✅\n\nHurmatli mijoz, menyudan tanlang 👇",
-        reply_markup=main_menu()
-    )
+    app.add_handler(conv_handler)
+    app.run_polling()
 
-# PRODUCTS
-@dp.message_handler(lambda message: message.text == "💧 Mahsulotlar")
-async def products(message: types.Message):
-    markup = InlineKeyboardMarkup()
-    for key, value in prices.items():
-        markup.add(
-            InlineKeyboardButton(
-                text=f"{key} - {value} so'm",
-                callback_data=f"add_{key}"
-            )
-        )
-    await message.answer("💧 Mahsulotni tanlang:", reply_markup=markup)
-
-# ADD TO CART
-@dp.callback_query_handler(lambda c: c.data.startswith("add_"))
-async def add_to_cart(callback_query: types.CallbackQuery):
-    product = callback_query.data.split("_")[1]
-    user_id = callback_query.from_user.id
-    
-    user_cart.setdefault(user_id, {})
-    user_cart[user_id].setdefault(product, 0)
-    user_cart[user_id][product] += 1
-    
-    await callback_query.answer("Savatga qo'shildi ✅")
-
-# CART
-@dp.message_handler(lambda message: message.text == "🛒 Savat")
-async def show_cart(message: types.Message):
-    user_id = message.from_user.id
-    
-    if user_id not in user_cart or not user_cart[user_id]:
-        await message.answer("Savat bo'sh 🛒")
-        return
-    
-    text = "🛒 Savatingiz:\n\n"
-    total = 0
-    
-    for product, qty in user_cart[user_id].items():
-        price = prices[product] * qty
-        total += price
-        text += f"{product} x{qty} = {price} so'm\n"
-    
-    text += f"\n💰 Jami: {total} so'm"
-    
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("📍 Manzil yuborish", request_location=True)
-    kb.add("⬅️ Ortga")
-    
-    await message.answer(text, reply_markup=kb)
-
-# LOCATION
-@dp.message_handler(content_types=types.ContentType.LOCATION)
-async def location_handler(message: types.Message):
-    user_id = message.from_user.id
-    
-    if user_id not in user_cart:
-        return
-    
-    latitude = message.location.latitude
-    longitude = message.location.longitude
-    
-    text = "🆕 Yangi buyurtma!\n\n"
-    total = 0
-    
-    for product, qty in user_cart[user_id].items():
-        price = prices[product] * qty
-        total += price
-        text += f"{product} x{qty} = {price} so'm\n"
-    
-    text += f"\n💰 Jami: {total} so'm\n"
-    text += f"\n📞 Telefon: {user_data[user_id]['phone']}"
-    text += f"\n👤 Username: @{user_data[user_id]['username']}"
-    text += f"\n📍 Manzil: https://maps.google.com/?q={latitude},{longitude}"
-    
-    await bot.send_message(ADMIN_ID, text)
-    
-    user_cart[user_id] = {}
-    
-    await message.answer("Hurmatli mijoz, buyurtmangiz qabul qilindi ✅", reply_markup=main_menu())
-
-# CONTACT
-@dp.message_handler(lambda message: message.text == "☎️ Aloqa")
-async def contact(message: types.Message):
-    await message.answer("📞 +998 XX XXX XX XX")
-
-if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+if __name__ == "__main__":
+    main()
