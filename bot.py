@@ -1,185 +1,235 @@
-import logging
 import os
-import json
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-
-logging.basicConfig(level=logging.INFO)
+import asyncio
+from datetime import datetime
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import (
+    ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
+from openpyxl import Workbook, load_workbook
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_ID = int(os.getenv("GROUP_ID"))
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
+bot = Bot(token=BOT_TOKEN,
+          default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
 
-DATA_FILE = "data.json"
+users = {}
+order_counter = 1
 
-# ================= DATA =================
+PRODUCTS = {
+    "💧 19L Suv": 15000,
+    "💧 10L Suv": 10000,
+    "💧 5L Suv": 6000
+}
 
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {"users": {}, "orders": 0}
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
+PAYMENT_LINK = "https://my.click.uz/yourlink"  # Click/Payme link qo‘yasan
 
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
 
-data = load_data()
+# Excel yaratish
+def save_to_excel(data):
+    file = "orders.xlsx"
+    try:
+        wb = load_workbook(file)
+        ws = wb.active
+    except:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["ID", "Ism", "Telefon", "Mahsulot",
+                   "Soni", "Summa", "Manzil", "Sana"])
 
-# ================= MENUS =================
+    ws.append([
+        data["id"],
+        data["name"],
+        data["phone"],
+        data["product"],
+        data["quantity"],
+        data["total"],
+        data["address"],
+        data["date"]
+    ])
+    wb.save(file)
 
-def main_menu(is_admin=False):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("💧 Buyurtma berish"))
-    if is_admin:
-        kb.add(KeyboardButton("📊 Statistika"))
-    return kb
 
-def phone_keyboard():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    kb.add(KeyboardButton("📞 Raqamni yuborish", request_contact=True))
-    return kb
+def product_menu():
+    keyboard = [[KeyboardButton(text=name)] for name in PRODUCTS.keys()]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
-def location_keyboard():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    kb.add(KeyboardButton("📍 Joylashuvni yuborish", request_location=True))
-    return kb
 
-# ================= START =================
+@dp.message(lambda m: m.text == "/start")
+async def start(message: types.Message):
+    user_id = message.from_user.id
 
-@dp.message_handler(commands=['start'])
-async def start_handler(message: types.Message):
-    user_id = str(message.from_user.id)
-
-    if user_id not in data["users"]:
-        data["users"][user_id] = {"step": "name"}
-        save_data(data)
-        await message.answer("Ismingizni kiriting:")
+    if user_id in users:
+        users[user_id]["step"] = "product"
+        await message.answer(
+            "Qaysi mahsulotimizga buyurtma bermoqchisiz?",
+            reply_markup=product_menu())
         return
 
+    users[user_id] = {"step": "name"}
+
     await message.answer(
-        "Assalomu alaykum 💧",
-        reply_markup=main_menu(int(user_id) == ADMIN_ID)
+        "Assalamu aleykum akowater buyurtma botiga xush kelibsiz 💧\n\nIsm:"
     )
 
-# ================= MAIN HANDLER =================
 
-@dp.message_handler(content_types=types.ContentTypes.ANY)
+@dp.message(lambda m: m.text == "/admin")
+async def admin_panel(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("📊 Admin panel\n/orders - Excel fayl")
+
+
+@dp.message(lambda m: m.text == "/orders")
+async def send_excel(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    if os.path.exists("orders.xlsx"):
+        await message.answer_document(types.FSInputFile("orders.xlsx"))
+    else:
+        await message.answer("Hozircha buyurtmalar yo‘q.")
+
+
+@dp.message()
 async def handler(message: types.Message):
+    global order_counter
 
-    user_id = str(message.from_user.id)
+    user_id = message.from_user.id
+    text = message.text
 
-    if user_id not in data["users"]:
+    if user_id not in users:
         await message.answer("Iltimos /start bosing.")
         return
 
-    user = data["users"][user_id]
-    step = user.get("step", "menu")
+    step = users[user_id]["step"]
 
-    # ===== ADMIN STATISTIKA =====
-    if message.text == "📊 Statistika" and int(user_id) == ADMIN_ID:
-        await message.answer(
-            f"📊 Statistika\n\n👥 Users: {len(data['users'])}\n📦 Orders: {data['orders']}"
-        )
-        return
-
-    # ===== REGISTRATION =====
+    # 1 Ism
     if step == "name":
-        if len(message.text) < 2:
+        if len(text) < 2:
             await message.answer("Ismni to‘g‘ri kiriting.")
             return
-
-        user["name"] = message.text
-        user["step"] = "menu"
-        save_data(data)
-
-        await message.answer(
-            "Ro'yxatdan o'tdingiz ✅",
-            reply_markup=main_menu(int(user_id) == ADMIN_ID)
-        )
+        users[user_id]["name"] = text
+        users[user_id]["step"] = "phone"
+        await message.answer("Raqamingiz:")
         return
 
-    # ===== ORDER START =====
-    if message.text == "💧 Buyurtma berish":
-
-        if step != "menu":
-            await message.answer("⚠️ Avvalgi buyurtmani tugating.")
-            return
-
-        user["step"] = "quantity"
-        save_data(data)
-        await message.answer("Nechta kerak?")
-        return
-
-    # ===== QUANTITY =====
-    if step == "quantity":
-        if not message.text.isdigit():
-            await message.answer("Iltimos son kiriting.")
-            return
-
-        user["quantity"] = message.text
-        user["step"] = "location"
-        save_data(data)
-
-        await message.answer(
-            "Joylashuvni yuboring:",
-            reply_markup=location_keyboard()
-        )
-        return
-
-    # ===== LOCATION =====
-    if step == "location":
-
-        if message.location:
-            lat = message.location.latitude
-            lon = message.location.longitude
-            user["location"] = f"https://maps.google.com/?q={lat},{lon}"
-            user["step"] = "phone"
-            save_data(data)
-
-            await message.answer(
-                "Telefon raqamingizni yuboring:",
-                reply_markup=phone_keyboard()
-            )
-            return
-
-        await message.answer("Iltimos 📍 tugma orqali joylashuv yuboring.")
-        return
-
-    # ===== PHONE =====
+    # 2 Telefon
     if step == "phone":
-
-        if message.contact:
-            user["phone"] = message.contact.phone_number
-        else:
-            await message.answer("Iltimos 📞 tugma orqali raqam yuboring.")
+        if not text.isdigit() or len(text) < 7:
+            await message.answer("Telefon noto‘g‘ri.")
             return
-
-        user["step"] = "menu"
-        data["orders"] += 1
-        order_number = data["orders"]
-        save_data(data)
-
-        order_text = (
-            f"🆕 Yangi buyurtma #{order_number}\n\n"
-            f"👤 Ism: {user['name']}\n"
-            f"📦 Soni: {user['quantity']}\n"
-            f"📍 Lokatsiya: {user['location']}\n"
-            f"📞 Telefon: {user['phone']}"
-        )
-
-        await bot.send_message(GROUP_ID, order_text)
-
+        users[user_id]["phone"] = text
+        users[user_id]["step"] = "product"
         await message.answer(
-            f"✅ Buyurtmangiz qabul qilindi!\nBuyurtma raqami: #{order_number}",
-            reply_markup=main_menu(int(user_id) == ADMIN_ID)
-        )
+            "Menyu: qaysi mahsulotimizga buyurtma bermoqchisiz?",
+            reply_markup=product_menu())
         return
 
-# ================= RUN =================
+    # 3 Mahsulot
+    if step == "product":
+        if text not in PRODUCTS:
+            await message.answer("Menyudan tanlang.")
+            return
+        users[user_id]["product"] = text
+        users[user_id]["step"] = "quantity"
+        await message.answer("Nechta?")
+        return
+
+    # 4 Soni
+    if step == "quantity":
+        if not text.isdigit():
+            await message.answer("Faqat son kiriting.")
+            return
+
+        quantity = int(text)
+        price = PRODUCTS[users[user_id]["product"]]
+        total = quantity * price
+
+        users[user_id]["quantity"] = quantity
+        users[user_id]["total"] = total
+        users[user_id]["step"] = "address"
+
+        await message.answer(
+            f"Hisob narxi: <b>{total:,} so‘m</b>\n\nManzil:")
+        return
+
+    # 5 Manzil
+    if step == "address":
+        if len(text) < 3:
+            await message.answer("Manzilni to‘liq kiriting.")
+            return
+
+        order_id = f"AKO-{order_counter:04d}"
+        order_counter += 1
+
+        users[user_id]["address"] = text
+        users[user_id]["id"] = order_id
+        users[user_id]["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        data = users[user_id]
+
+        # Excel
+        save_to_excel(data)
+
+        # Group inline button
+        inline = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="✅ Qabul qilindi",
+                    callback_data=f"done_{order_id}"
+                )]
+            ])
+
+        order_text = f"""
+🆕 <b>YANGI BUYURTMA</b>
+
+🆔 ID: {data['id']}
+👤 {data['name']}
+📞 {data['phone']}
+🛒 {data['product']}
+📦 {data['quantity']} dona
+💰 {data['total']:,} so‘m
+📍 {data['address']}
+🕒 {data['date']}
+"""
+
+        await bot.send_message(GROUP_ID, order_text,
+                               reply_markup=inline)
+
+        pay_btn = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="💳 Click / Payme orqali to‘lash",
+                    url=PAYMENT_LINK
+                )]
+            ])
+
+        users[user_id]["step"] = "product"
+
+        await message.answer(
+            "Buyurtmangiz qabul qilindi ✅\n"
+            "Operatorlarimiz tez orada siz bilan bog'lanishadi.",
+            reply_markup=pay_btn)
+
+        return
+
+
+@dp.callback_query(lambda c: c.data.startswith("done_"))
+async def done_order(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        callback.message.text + "\n\n✅ QABUL QILINDI")
+    await callback.answer("Belgilandi")
+
+
+async def main():
+    print("Bot ishga tushdi...")
+    await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
