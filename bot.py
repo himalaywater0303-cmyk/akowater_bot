@@ -8,7 +8,7 @@ TOKEN = "8427218470:AAF9_sdfcFOJQcq5n34tkpKcMhh8Lxd5JXc"
 GROUP_ID = -1003852199617
 ADMIN_ID = 1028958055
 
-bot = telebot.TeleBot(8427218470:AAF9_sdfcFOJQcq5n34tkpKcMhh8Lxd5JXc)
+bot = telebot.TeleBot(TOKEN)
 
 user_step = {}
 user_data = {}
