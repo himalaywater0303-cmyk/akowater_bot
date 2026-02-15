@@ -15,7 +15,7 @@ dp = Dispatcher(bot)
 
 DATA_FILE = "data.json"
 
-# ------------------ DATA ------------------
+# ================= DATA =================
 
 def load_data():
     if not os.path.exists(DATA_FILE):
@@ -29,20 +29,26 @@ def save_data(data):
 
 data = load_data()
 
-# ------------------ MENUS ------------------
+# ================= MENUS =================
 
-def user_menu():
+def main_menu(is_admin=False):
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
     kb.add(KeyboardButton("💧 Buyurtma berish"))
+    if is_admin:
+        kb.add(KeyboardButton("📊 Statistika"))
     return kb
 
-def admin_menu():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("📊 Statistika"))
-    kb.add(KeyboardButton("💧 Buyurtma berish"))
+def phone_keyboard():
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    kb.add(KeyboardButton("📞 Raqamni yuborish", request_contact=True))
     return kb
 
-# ------------------ START ------------------
+def location_keyboard():
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    kb.add(KeyboardButton("📍 Joylashuvni yuborish", request_location=True))
+    return kb
+
+# ================= START =================
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
@@ -54,22 +60,18 @@ async def start_handler(message: types.Message):
         await message.answer("Ismingizni kiriting:")
         return
 
-    await show_menu(message, user_id)
+    await message.answer(
+        "Assalomu alaykum 💧",
+        reply_markup=main_menu(int(user_id) == ADMIN_ID)
+    )
 
-async def show_menu(message, user_id):
-    if int(user_id) == ADMIN_ID:
-        await message.answer("Admin panel 👑", reply_markup=admin_menu())
-    else:
-        await message.answer("Assalomu alaykum! 💧", reply_markup=user_menu())
+# ================= MAIN HANDLER =================
 
-# ------------------ MAIN HANDLER ------------------
-
-@dp.message_handler()
+@dp.message_handler(content_types=types.ContentTypes.ANY)
 async def handler(message: types.Message):
-    user_id = str(message.from_user.id)
-    text = message.text
 
-    # USER mavjudligini tekshirish
+    user_id = str(message.from_user.id)
+
     if user_id not in data["users"]:
         await message.answer("Iltimos /start bosing.")
         return
@@ -77,23 +79,31 @@ async def handler(message: types.Message):
     user = data["users"][user_id]
     step = user.get("step", "menu")
 
-    # ---------------- ADMIN ----------------
-    if int(user_id) == ADMIN_ID and text == "📊 Statistika":
+    # ===== ADMIN STATISTIKA =====
+    if message.text == "📊 Statistika" and int(user_id) == ADMIN_ID:
         await message.answer(
             f"📊 Statistika\n\n👥 Users: {len(data['users'])}\n📦 Orders: {data['orders']}"
         )
         return
 
-    # ---------------- REGISTRATION ----------------
+    # ===== REGISTRATION =====
     if step == "name":
-        user["name"] = text
+        if len(message.text) < 2:
+            await message.answer("Ismni to‘g‘ri kiriting.")
+            return
+
+        user["name"] = message.text
         user["step"] = "menu"
         save_data(data)
-        await message.answer("Ro'yxatdan o'tdingiz ✅", reply_markup=user_menu())
+
+        await message.answer(
+            "Ro'yxatdan o'tdingiz ✅",
+            reply_markup=main_menu(int(user_id) == ADMIN_ID)
+        )
         return
 
-    # ---------------- ORDER START ----------------
-    if text == "💧 Buyurtma berish":
+    # ===== ORDER START =====
+    if message.text == "💧 Buyurtma berish":
 
         if step != "menu":
             await message.answer("⚠️ Avvalgi buyurtmani tugating.")
@@ -104,29 +114,50 @@ async def handler(message: types.Message):
         await message.answer("Nechta kerak?")
         return
 
-    # ---------------- QUANTITY ----------------
+    # ===== QUANTITY =====
     if step == "quantity":
-        if not text.isdigit():
+        if not message.text.isdigit():
             await message.answer("Iltimos son kiriting.")
             return
 
-        user["quantity"] = text
-        user["step"] = "address"
+        user["quantity"] = message.text
+        user["step"] = "location"
         save_data(data)
-        await message.answer("Manzilingizni kiriting:")
+
+        await message.answer(
+            "Joylashuvni yuboring:",
+            reply_markup=location_keyboard()
+        )
         return
 
-    # ---------------- ADDRESS ----------------
-    if step == "address":
-        user["address"] = text
-        user["step"] = "phone"
-        save_data(data)
-        await message.answer("Telefon raqamingizni kiriting:")
+    # ===== LOCATION =====
+    if step == "location":
+
+        if message.location:
+            lat = message.location.latitude
+            lon = message.location.longitude
+            user["location"] = f"https://maps.google.com/?q={lat},{lon}"
+            user["step"] = "phone"
+            save_data(data)
+
+            await message.answer(
+                "Telefon raqamingizni yuboring:",
+                reply_markup=phone_keyboard()
+            )
+            return
+
+        await message.answer("Iltimos 📍 tugma orqali joylashuv yuboring.")
         return
 
-    # ---------------- PHONE ----------------
+    # ===== PHONE =====
     if step == "phone":
-        user["phone"] = text
+
+        if message.contact:
+            user["phone"] = message.contact.phone_number
+        else:
+            await message.answer("Iltimos 📞 tugma orqali raqam yuboring.")
+            return
+
         user["step"] = "menu"
         data["orders"] += 1
         order_number = data["orders"]
@@ -136,7 +167,7 @@ async def handler(message: types.Message):
             f"🆕 Yangi buyurtma #{order_number}\n\n"
             f"👤 Ism: {user['name']}\n"
             f"📦 Soni: {user['quantity']}\n"
-            f"📍 Manzil: {user['address']}\n"
+            f"📍 Lokatsiya: {user['location']}\n"
             f"📞 Telefon: {user['phone']}"
         )
 
@@ -144,11 +175,11 @@ async def handler(message: types.Message):
 
         await message.answer(
             f"✅ Buyurtmangiz qabul qilindi!\nBuyurtma raqami: #{order_number}",
-            reply_markup=user_menu()
+            reply_markup=main_menu(int(user_id) == ADMIN_ID)
         )
         return
 
-# ---------------- RUN ----------------
+# ================= RUN =================
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
