@@ -1,12 +1,18 @@
-import telebot
-from telebot import types
+import logging
+import os
+from aiogram import Bot, Dispatcher, executor, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from dotenv import load_dotenv
 
-TOKEN = "8427218470:AAFNC81mmMl8d0op2xJzS7I8Vg5vOC8vPbo"
-ADMIN_ID = 1028958055
+load_dotenv()
 
-bot = telebot.TeleBot(TOKEN)
+API_TOKEN = os.getenv("8427218470:AAFNC81mmMl8d0op2xJzS7I8Vg5vOC8vPbo")
+ADMIN_ID = int(os.getenv("-1003852199617"))
 
-users = {}
+logging.basicConfig(level=logging.INFO)
+
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
 
 prices = {
     "5L": 6000,
@@ -14,124 +20,125 @@ prices = {
     "18.9L": 15000
 }
 
+user_cart = {}
+user_data = {}
+
+# MAIN MENU
+def main_menu():
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("💧 Mahsulotlar")
+    kb.add("🛒 Savat")
+    kb.add("☎️ Aloqa")
+    return kb
+
 # START
-@bot.message_handler(commands=['start'])
-def start(message):
-    users[message.chat.id] = {"step": "name"}
-    bot.send_message(message.chat.id,
-                     "Assalomu aleykum 👋\n\nAkowater_bot ga xush kelibsiz.\n\n1️⃣ Ism familiyangizni yozing:")
+@dp.message_handler(commands=['start'])
+async def start_handler(message: types.Message):
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton("📞 Telefon raqam yuborish", request_contact=True))
+    
+    await message.answer(
+        "Assalomu alaykum!\n\nHurmatli mijoz 👋\nIltimos, telefon raqamingizni yuboring.",
+        reply_markup=kb
+    )
 
+# CONTACT SAVE
+@dp.message_handler(content_types=types.ContentType.CONTACT)
+async def contact_handler(message: types.Message):
+    user_data[message.from_user.id] = {
+        "phone": message.contact.phone_number,
+        "username": message.from_user.username
+    }
+    
+    await message.answer(
+        "Rahmat ✅\n\nHurmatli mijoz, menyudan tanlang 👇",
+        reply_markup=main_menu()
+    )
 
-@bot.message_handler(content_types=['text', 'contact'])
-def handler(message):
-    chat_id = message.chat.id
+# PRODUCTS
+@dp.message_handler(lambda message: message.text == "💧 Mahsulotlar")
+async def products(message: types.Message):
+    markup = InlineKeyboardMarkup()
+    for key, value in prices.items():
+        markup.add(
+            InlineKeyboardButton(
+                text=f"{key} - {value} so'm",
+                callback_data=f"add_{key}"
+            )
+        )
+    await message.answer("💧 Mahsulotni tanlang:", reply_markup=markup)
 
-    if chat_id not in users:
+# ADD TO CART
+@dp.callback_query_handler(lambda c: c.data.startswith("add_"))
+async def add_to_cart(callback_query: types.CallbackQuery):
+    product = callback_query.data.split("_")[1]
+    user_id = callback_query.from_user.id
+    
+    user_cart.setdefault(user_id, {})
+    user_cart[user_id].setdefault(product, 0)
+    user_cart[user_id][product] += 1
+    
+    await callback_query.answer("Savatga qo'shildi ✅")
+
+# CART
+@dp.message_handler(lambda message: message.text == "🛒 Savat")
+async def show_cart(message: types.Message):
+    user_id = message.from_user.id
+    
+    if user_id not in user_cart or not user_cart[user_id]:
+        await message.answer("Savat bo'sh 🛒")
         return
+    
+    text = "🛒 Savatingiz:\n\n"
+    total = 0
+    
+    for product, qty in user_cart[user_id].items():
+        price = prices[product] * qty
+        total += price
+        text += f"{product} x{qty} = {price} so'm\n"
+    
+    text += f"\n💰 Jami: {total} so'm"
+    
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("📍 Manzil yuborish", request_location=True)
+    kb.add("⬅️ Ortga")
+    
+    await message.answer(text, reply_markup=kb)
 
-    step = users[chat_id]["step"]
+# LOCATION
+@dp.message_handler(content_types=types.ContentType.LOCATION)
+async def location_handler(message: types.Message):
+    user_id = message.from_user.id
+    
+    if user_id not in user_cart:
+        return
+    
+    latitude = message.location.latitude
+    longitude = message.location.longitude
+    
+    text = "🆕 Yangi buyurtma!\n\n"
+    total = 0
+    
+    for product, qty in user_cart[user_id].items():
+        price = prices[product] * qty
+        total += price
+        text += f"{product} x{qty} = {price} so'm\n"
+    
+    text += f"\n💰 Jami: {total} so'm\n"
+    text += f"\n📞 Telefon: {user_data[user_id]['phone']}"
+    text += f"\n👤 Username: @{user_data[user_id]['username']}"
+    text += f"\n📍 Manzil: https://maps.google.com/?q={latitude},{longitude}"
+    
+    await bot.send_message(ADMIN_ID, text)
+    
+    user_cart[user_id] = {}
+    
+    await message.answer("Hurmatli mijoz, buyurtmangiz qabul qilindi ✅", reply_markup=main_menu())
 
-    # 1️⃣ ISM
-    if step == "name":
-        users[chat_id]["name"] = message.text
-        users[chat_id]["step"] = "phone"
+# CONTACT
+@dp.message_handler(lambda message: message.text == "☎️ Aloqa")
+async def contact(message: types.Message):
+    await message.answer("📞 +998 XX XXX XX XX")
 
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        btn = types.KeyboardButton("📞 Raqam yuborish", request_contact=True)
-        markup.add(btn)
-
-        bot.send_message(chat_id,
-                         "2️⃣ Telefon raqamingizni yuboring:",
-                         reply_markup=markup)
-
-    # 2️⃣ TELEFON
-    elif step == "phone" and message.content_type == "contact":
-        users[chat_id]["phone"] = message.contact.phone_number
-        users[chat_id]["step"] = "address"
-
-        bot.send_message(chat_id,
-                         "3️⃣ Manzilingizni yozing (Navoiy shahar):",
-                         reply_markup=types.ReplyKeyboardRemove())
-
-    # 3️⃣ MANZIL
-    elif step == "address":
-        users[chat_id]["address"] = message.text
-        users[chat_id]["step"] = "product"
-
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("5L – 6 000 so'm")
-        markup.add("10L – 8 000 so'm")
-        markup.add("18.9L – 15 000 so'm")
-
-        bot.send_message(chat_id,
-                         "4️⃣ Qaysi mahsulotni tanlaysiz?",
-                         reply_markup=markup)
-
-    # 4️⃣ MAHSULOT
-    elif step == "product":
-        if "5L" in message.text:
-            users[chat_id]["product"] = "5L"
-        elif "10L" in message.text:
-            users[chat_id]["product"] = "10L"
-        elif "18.9L" in message.text:
-            users[chat_id]["product"] = "18.9L"
-        else:
-            return
-
-        users[chat_id]["step"] = "quantity"
-
-        bot.send_message(chat_id,
-                         "5️⃣ Nechta buyurtma qilmoqchisiz?")
-
-    # 5️⃣ SONI
-    elif step == "quantity":
-        try:
-            qty = int(message.text)
-        except:
-            bot.send_message(chat_id, "Iltimos faqat raqam yozing.")
-            return
-
-        users[chat_id]["quantity"] = qty
-        product = users[chat_id]["product"]
-        total = prices[product] * qty
-        users[chat_id]["total"] = total
-
-        text = f"""
-📦 YANGI BUYURTMA
-
-👤 Ism: {users[chat_id]['name']}
-📞 Telefon: {users[chat_id]['phone']}
-📍 Manzil: {users[chat_id]['address']}
-
-💧 Mahsulot: {product}
-🔢 Soni: {qty}
-💰 Jami: {total} so'm
-"""
-
-        bot.send_message(ADMIN_ID, text)
-
-        bot.send_message(chat_id,
-                         f"6️⃣ Hisob:\n\n💰 Jami summa: {total} so'm\n🚚 Yetkazib berish bepul\n♻ Tara depozit yo'q")
-
-        bot.send_message(chat_id,
-                         "7️⃣ ✅ Buyurtmangiz qabul qilindi!\nTez orada bog'lanamiz.",
-                         reply_markup=types.ReplyKeyboardRemove())
-
-        users.pop(chat_id)
-
-print("Bot ishga tushdi...")
-bot.infinity_polling()
-
-from telegram.ext import CommandHandler
-
-async def show_id(update, context):
-    await update.message.reply_text(str(update.effective_chat.id))
-
-application.add_handler(CommandHandler("id", show_id))
-
-from telegram.ext import CommandHandler
-
-async def show_id(update, context):
-    await update.message.reply_text(f"Chat ID: {update.effective_chat.id}")
-
-application.add_handler(CommandHandler("id", show_id))
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)
