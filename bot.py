@@ -15,7 +15,7 @@ dp = Dispatcher(bot)
 
 DATA_FILE = "data.json"
 
-# ------------------ DATA LOAD ------------------
+# ------------------ DATA ------------------
 
 def load_data():
     if not os.path.exists(DATA_FILE):
@@ -32,15 +32,15 @@ data = load_data()
 # ------------------ MENUS ------------------
 
 def user_menu():
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(KeyboardButton("💧 Buyurtma berish"))
-    return keyboard
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton("💧 Buyurtma berish"))
+    return kb
 
 def admin_menu():
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(KeyboardButton("📊 Statistika"))
-    keyboard.add(KeyboardButton("📦 Buyurtmalar soni"))
-    return keyboard
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton("📊 Statistika"))
+    kb.add(KeyboardButton("💧 Buyurtma berish"))
+    return kb
 
 # ------------------ START ------------------
 
@@ -49,73 +49,88 @@ async def start_handler(message: types.Message):
     user_id = str(message.from_user.id)
 
     if user_id not in data["users"]:
-        await message.answer("Ismingizni kiriting:")
         data["users"][user_id] = {"step": "name"}
         save_data(data)
-    else:
-        if int(user_id) == ADMIN_ID:
-            await message.answer("Admin panel 👑", reply_markup=admin_menu())
-        else:
-            await message.answer("Assalomu alaykum! 💧", reply_markup=user_menu())
+        await message.answer("Ismingizni kiriting:")
+        return
 
-# ------------------ MESSAGE HANDLER ------------------
+    await show_menu(message, user_id)
+
+async def show_menu(message, user_id):
+    if int(user_id) == ADMIN_ID:
+        await message.answer("Admin panel 👑", reply_markup=admin_menu())
+    else:
+        await message.answer("Assalomu alaykum! 💧", reply_markup=user_menu())
+
+# ------------------ MAIN HANDLER ------------------
 
 @dp.message_handler()
-async def handle_message(message: types.Message):
+async def handler(message: types.Message):
     user_id = str(message.from_user.id)
+    text = message.text
 
-    # ADMIN PANEL
-    if int(user_id) == ADMIN_ID:
-        if message.text == "📊 Statistika":
-            total_users = len(data["users"])
-            total_orders = data["orders"]
-            await message.answer(
-                f"📊 Statistika\n\n👥 Foydalanuvchilar: {total_users}\n📦 Buyurtmalar: {total_orders}"
-            )
-            return
+    # USER mavjudligini tekshirish
+    if user_id not in data["users"]:
+        await message.answer("Iltimos /start bosing.")
+        return
 
-        if message.text == "📦 Buyurtmalar soni":
-            await message.answer(f"📦 Jami buyurtmalar: {data['orders']}")
-            return
+    user = data["users"][user_id]
+    step = user.get("step", "menu")
 
-    # REGISTRATION FLOW
-    if user_id in data["users"] and data["users"][user_id].get("step") == "name":
-        data["users"][user_id]["name"] = message.text
-        data["users"][user_id]["step"] = "menu"
+    # ---------------- ADMIN ----------------
+    if int(user_id) == ADMIN_ID and text == "📊 Statistika":
+        await message.answer(
+            f"📊 Statistika\n\n👥 Users: {len(data['users'])}\n📦 Orders: {data['orders']}"
+        )
+        return
+
+    # ---------------- REGISTRATION ----------------
+    if step == "name":
+        user["name"] = text
+        user["step"] = "menu"
         save_data(data)
         await message.answer("Ro'yxatdan o'tdingiz ✅", reply_markup=user_menu())
         return
 
-    # ORDER FLOW
-    if message.text == "💧 Buyurtma berish":
-        data["users"][user_id]["step"] = "quantity"
+    # ---------------- ORDER START ----------------
+    if text == "💧 Buyurtma berish":
+
+        if step != "menu":
+            await message.answer("⚠️ Avvalgi buyurtmani tugating.")
+            return
+
+        user["step"] = "quantity"
         save_data(data)
         await message.answer("Nechta kerak?")
         return
 
-    if user_id in data["users"] and data["users"][user_id].get("step") == "quantity":
-        data["users"][user_id]["quantity"] = message.text
-        data["users"][user_id]["step"] = "address"
+    # ---------------- QUANTITY ----------------
+    if step == "quantity":
+        if not text.isdigit():
+            await message.answer("Iltimos son kiriting.")
+            return
+
+        user["quantity"] = text
+        user["step"] = "address"
         save_data(data)
         await message.answer("Manzilingizni kiriting:")
         return
 
-    if user_id in data["users"] and data["users"][user_id].get("step") == "address":
-        data["users"][user_id]["address"] = message.text
-        data["users"][user_id]["step"] = "phone"
+    # ---------------- ADDRESS ----------------
+    if step == "address":
+        user["address"] = text
+        user["step"] = "phone"
         save_data(data)
         await message.answer("Telefon raqamingizni kiriting:")
         return
 
-    if user_id in data["users"] and data["users"][user_id].get("step") == "phone":
-        data["users"][user_id]["phone"] = message.text
-        data["users"][user_id]["step"] = "menu"
+    # ---------------- PHONE ----------------
+    if step == "phone":
+        user["phone"] = text
+        user["step"] = "menu"
         data["orders"] += 1
-
         order_number = data["orders"]
         save_data(data)
-
-        user = data["users"][user_id]
 
         order_text = (
             f"🆕 Yangi buyurtma #{order_number}\n\n"
@@ -133,7 +148,7 @@ async def handle_message(message: types.Message):
         )
         return
 
-# ------------------ RUN ------------------
+# ---------------- RUN ----------------
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
