@@ -14,8 +14,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_ID = int(os.getenv("GROUP_ID"))
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-bot = Bot(token=BOT_TOKEN,
-          default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 dp = Dispatcher()
 
 users = {}
@@ -27,10 +29,11 @@ PRODUCTS = {
     "💧 5L Suv": 6000
 }
 
-PAYMENT_LINK = "https://my.click.uz/yourlink"  # Click/Payme link qo‘yasan
+PAYMENT_LINK = "https://your-click-or-payme-link"  # To‘lov link qo‘y
 
 
-# Excel yaratish
+# ------------------ Excel ------------------
+
 def save_to_excel(data):
     file = "orders.xlsx"
     try:
@@ -55,20 +58,26 @@ def save_to_excel(data):
     wb.save(file)
 
 
+# ------------------ Menyu ------------------
+
 def product_menu():
     keyboard = [[KeyboardButton(text=name)] for name in PRODUCTS.keys()]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+# ------------------ START ------------------
+
 @dp.message(lambda m: m.text == "/start")
 async def start(message: types.Message):
     user_id = message.from_user.id
 
-    if user_id in users:
+    # Agar oldin ro‘yxatdan o‘tgan bo‘lsa
+    if user_id in users and "name" in users[user_id] and "phone" in users[user_id]:
         users[user_id]["step"] = "product"
         await message.answer(
             "Qaysi mahsulotimizga buyurtma bermoqchisiz?",
-            reply_markup=product_menu())
+            reply_markup=product_menu()
+        )
         return
 
     users[user_id] = {"step": "name"}
@@ -78,15 +87,17 @@ async def start(message: types.Message):
     )
 
 
+# ------------------ ADMIN ------------------
+
 @dp.message(lambda m: m.text == "/admin")
 async def admin_panel(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-    await message.answer("📊 Admin panel\n/orders - Excel fayl")
+    await message.answer("📊 Admin panel\n/orders - Excel faylni olish")
 
 
 @dp.message(lambda m: m.text == "/orders")
-async def send_excel(message: types.Message):
+async def send_orders(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
     if os.path.exists("orders.xlsx"):
@@ -94,6 +105,8 @@ async def send_excel(message: types.Message):
     else:
         await message.answer("Hozircha buyurtmalar yo‘q.")
 
+
+# ------------------ MAIN FLOW ------------------
 
 @dp.message()
 async def handler(message: types.Message):
@@ -108,39 +121,44 @@ async def handler(message: types.Message):
 
     step = users[user_id]["step"]
 
-    # 1 Ism
+    # 1️⃣ ISM
     if step == "name":
         if len(text) < 2:
             await message.answer("Ismni to‘g‘ri kiriting.")
             return
+
         users[user_id]["name"] = text
         users[user_id]["step"] = "phone"
         await message.answer("Raqamingiz:")
         return
 
-    # 2 Telefon
+    # 2️⃣ TELEFON
     if step == "phone":
         if not text.isdigit() or len(text) < 7:
-            await message.answer("Telefon noto‘g‘ri.")
+            await message.answer("Telefon noto‘g‘ri. Masalan: 901234567")
             return
+
         users[user_id]["phone"] = text
         users[user_id]["step"] = "product"
+
         await message.answer(
             "Menyu: qaysi mahsulotimizga buyurtma bermoqchisiz?",
-            reply_markup=product_menu())
+            reply_markup=product_menu()
+        )
         return
 
-    # 3 Mahsulot
+    # 3️⃣ MAHSULOT
     if step == "product":
         if text not in PRODUCTS:
             await message.answer("Menyudan tanlang.")
             return
+
         users[user_id]["product"] = text
         users[user_id]["step"] = "quantity"
         await message.answer("Nechta?")
         return
 
-    # 4 Soni
+    # 4️⃣ SONI
     if step == "quantity":
         if not text.isdigit():
             await message.answer("Faqat son kiriting.")
@@ -155,10 +173,11 @@ async def handler(message: types.Message):
         users[user_id]["step"] = "address"
 
         await message.answer(
-            f"Hisob narxi: <b>{total:,} so‘m</b>\n\nManzil:")
+            f"Hisob narxi: <b>{total:,} so‘m</b>\n\nManzil:"
+        )
         return
 
-    # 5 Manzil
+    # 5️⃣ MANZIL
     if step == "address":
         if len(text) < 3:
             await message.answer("Manzilni to‘liq kiriting.")
@@ -172,18 +191,17 @@ async def handler(message: types.Message):
         users[user_id]["date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
 
         data = users[user_id]
-
-        # Excel
         save_to_excel(data)
 
-        # Group inline button
+        # Group button
         inline = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(
                     text="✅ Qabul qilindi",
                     callback_data=f"done_{order_id}"
                 )]
-            ])
+            ]
+        )
 
         order_text = f"""
 🆕 <b>YANGI BUYURTMA</b>
@@ -198,8 +216,7 @@ async def handler(message: types.Message):
 🕒 {data['date']}
 """
 
-        await bot.send_message(GROUP_ID, order_text,
-                               reply_markup=inline)
+        await bot.send_message(GROUP_ID, order_text, reply_markup=inline)
 
         pay_btn = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -207,24 +224,28 @@ async def handler(message: types.Message):
                     text="💳 Click / Payme orqali to‘lash",
                     url=PAYMENT_LINK
                 )]
-            ])
+            ]
+        )
 
         users[user_id]["step"] = "product"
 
         await message.answer(
             "Buyurtmangiz qabul qilindi ✅\n"
             "Operatorlarimiz tez orada siz bilan bog'lanishadi.",
-            reply_markup=pay_btn)
-
+            reply_markup=pay_btn
+        )
         return
 
 
 @dp.callback_query(lambda c: c.data.startswith("done_"))
 async def done_order(callback: types.CallbackQuery):
     await callback.message.edit_text(
-        callback.message.text + "\n\n✅ QABUL QILINDI")
+        callback.message.text + "\n\n✅ QABUL QILINDI"
+    )
     await callback.answer("Belgilandi")
 
+
+# ------------------ RUN ------------------
 
 async def main():
     print("Bot ishga tushdi...")
