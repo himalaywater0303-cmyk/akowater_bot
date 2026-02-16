@@ -11,6 +11,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID"))
 bot = telebot.TeleBot(TOKEN)
 
 # ================= DATABASE =================
+
 conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -43,13 +44,14 @@ prices = {
 }
 
 # ================= MENU =================
+
 def product_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("5L", "10L", "18.9L")
     return markup
 
-
 # ================= START =================
+
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.chat.id
@@ -57,63 +59,80 @@ def start(message):
     user = cursor.fetchone()
 
     if user:
-        bot.send_message(user_id,
-                         "💧 Qaytganingizdan xursandmiz!\nMahsulotni tanlang:",
-                         reply_markup=product_menu())
+        bot.send_message(
+            user_id,
+            "💧 Qaytganingizdan xursandmiz!\nMahsulotni tanlang:",
+            reply_markup=product_menu()
+        )
     else:
-        bot.send_message(user_id,
-                         "💧 Assalamu alaykum AKO Water buyurtma botiga xush kelibsiz.\n\nIsmingizni kiriting:")
+        bot.send_message(
+            user_id,
+            "💧 Assalamu alaykum AKO Water buyurtma botiga xush kelibsiz.\n\nIsmingizni kiriting:"
+        )
         bot.register_next_step_handler(message, get_name)
 
-
 # ================= RO‘YXAT =================
+
 def get_name(message):
-    name = message.text
+    name = message.text.strip()
     bot.send_message(message.chat.id, "📞 Raqamingizni kiriting:")
     bot.register_next_step_handler(message, lambda m: get_phone(m, name))
 
-
 def get_phone(message, name):
-    phone = message.text
-    cursor.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?)",
-                   (message.chat.id, name, phone))
+    phone = message.text.strip()
+
+    cursor.execute(
+        "INSERT OR REPLACE INTO users VALUES (?, ?, ?)",
+        (message.chat.id, name, phone)
+    )
     conn.commit()
 
-    bot.send_message(message.chat.id,
-                     "💧 Mahsulotni tanlang:",
-                     reply_markup=product_menu())
+    bot.send_message(
+        message.chat.id,
+        "💧 Mahsulotni tanlang:",
+        reply_markup=product_menu()
+    )
 
+# ================= PRODUCT =================
 
-# ================= PRODUCT (GLOBAL) =================
 @bot.message_handler(func=lambda message: message.text in prices)
 def handle_product(message):
-    # Tekshiramiz: user ro‘yxatdan o‘tganmi?
-    cursor.execute("SELECT * FROM users WHERE user_id=?",
-                   (message.chat.id,))
+    cursor.execute("SELECT * FROM users WHERE user_id=?", (message.chat.id,))
     user = cursor.fetchone()
 
     if not user:
-        bot.send_message(message.chat.id,
-                         "Avval ro‘yxatdan o‘ting.\nIsmingizni kiriting:")
+        bot.send_message(
+            message.chat.id,
+            "Avval ro‘yxatdan o‘ting.\nIsmingizni kiriting:"
+        )
         bot.register_next_step_handler(message, get_name)
         return
 
     product = message.text
-    bot.send_message(message.chat.id,
-                     "Nechta kerak? (masalan: 2 yoki 2ta)")
-    bot.register_next_step_handler(message,
-                                   lambda m: get_quantity(m, product))
 
+    bot.send_message(
+        message.chat.id,
+        "Nechta kerak? (masalan: 2 yoki 2ta)"
+    )
+    bot.register_next_step_handler(
+        message,
+        lambda m: get_quantity(m, product)
+    )
 
 # ================= SON =================
+
 def get_quantity(message, product):
     number = re.findall(r'\d+', message.text)
 
     if not number:
-        bot.send_message(message.chat.id,
-                         "Iltimos son kiriting.")
-        bot.register_next_step_handler(message,
-                                       lambda m: get_quantity(m, product))
+        bot.send_message(
+            message.chat.id,
+            "Iltimos faqat son kiriting."
+        )
+        bot.register_next_step_handler(
+            message,
+            lambda m: get_quantity(m, product)
+        )
         return
 
     quantity = int(number[0])
@@ -121,15 +140,17 @@ def get_quantity(message, product):
     date = datetime.now().strftime("%d.%m.%Y %H:%M")
 
     cursor.execute("""
-    INSERT INTO orders (user_id, product, quantity, total, status, date)
-    VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO orders (user_id, product, quantity, total, status, date)
+        VALUES (?, ?, ?, ?, ?, ?)
     """, (message.chat.id, product, quantity, total, "Yangi", date))
     conn.commit()
 
     order_id = cursor.lastrowid
 
-    cursor.execute("SELECT name, phone FROM users WHERE user_id=?",
-                   (message.chat.id,))
+    cursor.execute(
+        "SELECT name, phone FROM users WHERE user_id=?",
+        (message.chat.id,)
+    )
     user = cursor.fetchone()
 
     text = f"""
@@ -145,22 +166,28 @@ def get_quantity(message, product):
 
     markup = types.InlineKeyboardMarkup()
     markup.add(
-        types.InlineKeyboardButton("✅ Qabul qilindi",
-                                   callback_data=f"ok_{order_id}"),
-        types.InlineKeyboardButton("❌ Bekor qilindi",
-                                   callback_data=f"cancel_{order_id}")
+        types.InlineKeyboardButton(
+            "✅ Qabul qilindi",
+            callback_data=f"ok_{order_id}"
+        ),
+        types.InlineKeyboardButton(
+            "❌ Bekor qilindi",
+            callback_data=f"cancel_{order_id}"
+        )
     )
 
     bot.send_message(ADMIN_ID, text, reply_markup=markup)
 
-    bot.send_message(message.chat.id,
-                     f"💰 Jami hisob: {total:,} so'm\n\n"
-                     "✅ Buyurtmangiz qabul qilindi.\n"
-                     "Operatorlarimiz tez orada siz bilan bog'lanishadi.",
-                     reply_markup=product_menu())
-
+    bot.send_message(
+        message.chat.id,
+        f"💰 Jami hisob: {total:,} so'm\n\n"
+        "✅ Buyurtmangiz qabul qilindi.\n"
+        "Operatorlarimiz tez orada siz bilan bog'lanishadi.",
+        reply_markup=product_menu()
+    )
 
 # ================= ADMIN BUTTON =================
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     data = call.data.split("_")
@@ -168,18 +195,22 @@ def callback(call):
     order_id = int(data[1])
 
     if action == "ok":
-        cursor.execute("UPDATE orders SET status=? WHERE id=?",
-                       ("Qabul qilindi", order_id))
+        cursor.execute(
+            "UPDATE orders SET status=? WHERE id=?",
+            ("Qabul qilindi", order_id)
+        )
         bot.answer_callback_query(call.id, "Buyurtma qabul qilindi")
     else:
-        cursor.execute("UPDATE orders SET status=? WHERE id=?",
-                       ("Bekor qilindi", order_id))
+        cursor.execute(
+            "UPDATE orders SET status=? WHERE id=?",
+            ("Bekor qilindi", order_id)
+        )
         bot.answer_callback_query(call.id, "Buyurtma bekor qilindi")
 
     conn.commit()
 
-
 # ================= STATISTIKA =================
+
 @bot.message_handler(commands=['stat'])
 def stat(message):
     if message.chat.id != ADMIN_ID:
@@ -189,16 +220,19 @@ def stat(message):
     total_orders = cursor.fetchone()[0]
 
     cursor.execute(
-        "SELECT SUM(total) FROM orders WHERE status='Qabul qilindi'")
+        "SELECT SUM(total) FROM orders WHERE status='Qabul qilindi'"
+    )
     total_income = cursor.fetchone()[0] or 0
 
-    bot.send_message(ADMIN_ID,
-                     f"📊 STATISTIKA\n\n"
-                     f"🛒 Jami buyurtmalar: {total_orders}\n"
-                     f"💰 Jami tushum: {total_income:,} so'm")
-
+    bot.send_message(
+        ADMIN_ID,
+        f"📊 STATISTIKA\n\n"
+        f"🛒 Jami buyurtmalar: {total_orders}\n"
+        f"💰 Jami tushum: {total_income:,} so'm"
+    )
 
 # ================= RUN =================
+
 if __name__ == "__main__":
     print("Bot ishga tushdi...")
     bot.infinity_polling()
