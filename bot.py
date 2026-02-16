@@ -7,6 +7,7 @@ import re
 
 TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
+GROUP_ID = int(os.getenv("GROUP_ID"))  # 🔥 Guruh ID qo‘shildi
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -112,10 +113,12 @@ def handle_product(message):
 
     product = message.text
 
+    # 🔥 Qayta buyurtmada chiqadi
     bot.send_message(
         message.chat.id,
-        "Nechta kerak? (masalan: 2 yoki 2ta)"
+        "💧 Qaytganingizdan xursandmiz!\n\nNechta kerak? (masalan: 2 yoki 2ta)"
     )
+
     bot.register_next_step_handler(
         message,
         lambda m: get_quantity(m, product)
@@ -233,20 +236,43 @@ def callback(call):
     action = data[0]
     order_id = int(data[1])
 
+    cursor.execute("SELECT * FROM orders WHERE id=?", (order_id,))
+    order = cursor.fetchone()
+
+    if not order:
+        return
+
     if action == "ok":
         cursor.execute(
             "UPDATE orders SET status=? WHERE id=?",
             ("Qabul qilindi", order_id)
         )
+        conn.commit()
+
         bot.answer_callback_query(call.id, "Buyurtma qabul qilindi")
+
+        # 🔥 GURUHGA YUBORISH
+        group_text = f"""
+✅ BUYURTMA QABUL QILINDI
+
+🆔 ID: {order_id}
+💧 {order[2]}
+📦 {order[3]} ta
+💰 {order[4]:,} so'm
+📍 {order[5]}
+📝 {order[6]}
+"""
+
+        bot.send_message(GROUP_ID, group_text)
+
     else:
         cursor.execute(
             "UPDATE orders SET status=? WHERE id=?",
             ("Bekor qilindi", order_id)
         )
-        bot.answer_callback_query(call.id, "Buyurtma bekor qilindi")
+        conn.commit()
 
-    conn.commit()
+        bot.answer_callback_query(call.id, "Buyurtma bekor qilindi")
 
 # ================= STAT =================
 
