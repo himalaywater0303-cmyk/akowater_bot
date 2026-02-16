@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS orders (
     product TEXT,
     quantity INTEGER,
     total INTEGER,
+    address TEXT,
+    comment TEXT,
     status TEXT,
     date TEXT
 )
@@ -137,12 +139,50 @@ def get_quantity(message, product):
 
     quantity = int(number[0])
     total = prices[product] * quantity
+
+    bot.send_message(message.chat.id, "📍 Yetkazib berish manzilini kiriting:")
+    bot.register_next_step_handler(
+        message,
+        lambda m: get_address(m, product, quantity, total)
+    )
+
+# ================= MANZIL =================
+
+def get_address(message, product, quantity, total):
+    address = message.text.strip()
+
+    bot.send_message(
+        message.chat.id,
+        "📝 Ixtiyoriy izoh yuboring yoki '-' deb yozing:"
+    )
+
+    bot.register_next_step_handler(
+        message,
+        lambda m: get_comment(m, product, quantity, total, address)
+    )
+
+# ================= IZOHLAR =================
+
+def get_comment(message, product, quantity, total, address):
+    comment = message.text.strip()
+    if comment == "-":
+        comment = "Yo‘q"
+
     date = datetime.now().strftime("%d.%m.%Y %H:%M")
 
     cursor.execute("""
-        INSERT INTO orders (user_id, product, quantity, total, status, date)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (message.chat.id, product, quantity, total, "Yangi", date))
+        INSERT INTO orders (user_id, product, quantity, total, address, comment, status, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        message.chat.id,
+        product,
+        quantity,
+        total,
+        address,
+        comment,
+        "Yangi",
+        date
+    ))
     conn.commit()
 
     order_id = cursor.lastrowid
@@ -161,28 +201,27 @@ def get_quantity(message, product):
 💧 {product}
 📦 {quantity} ta
 💰 {total:,} so'm
+📍 {address}
+📝 {comment}
 ⏰ {date}
 """
 
     markup = types.InlineKeyboardMarkup()
     markup.add(
-        types.InlineKeyboardButton(
-            "✅ Qabul qilindi",
-            callback_data=f"ok_{order_id}"
-        ),
-        types.InlineKeyboardButton(
-            "❌ Bekor qilindi",
-            callback_data=f"cancel_{order_id}"
-        )
+        types.InlineKeyboardButton("✅ Qabul qilindi",
+                                   callback_data=f"ok_{order_id}"),
+        types.InlineKeyboardButton("❌ Bekor qilindi",
+                                   callback_data=f"cancel_{order_id}")
     )
 
     bot.send_message(ADMIN_ID, text, reply_markup=markup)
 
     bot.send_message(
         message.chat.id,
+        f"🆔 Buyurtma ID: {order_id}\n"
         f"💰 Jami hisob: {total:,} so'm\n\n"
         "✅ Buyurtmangiz qabul qilindi.\n"
-        "Operatorlarimiz tez orada siz bilan bog'lanishadi.",
+        "🚚 Operatorlarimiz tez orada siz bilan bog'lanishadi.",
         reply_markup=product_menu()
     )
 
@@ -209,7 +248,7 @@ def callback(call):
 
     conn.commit()
 
-# ================= STATISTIKA =================
+# ================= STAT =================
 
 @bot.message_handler(commands=['stat'])
 def stat(message):
