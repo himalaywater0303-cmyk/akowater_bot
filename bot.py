@@ -2,7 +2,6 @@ import telebot
 from telebot import types
 import sqlite3
 import os
-from flask import Flask, request
 from datetime import datetime
 import re
 
@@ -10,7 +9,6 @@ TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 bot = telebot.TeleBot(TOKEN)
-app = Flask(__name__)
 
 # ================= DATABASE =================
 conn = sqlite3.connect("database.db", check_same_thread=False)
@@ -97,7 +95,6 @@ def get_quantity(message, product):
 
     quantity = int(number[0])
     total = prices[product] * quantity
-
     date = datetime.now().strftime("%d.%m.%Y %H:%M")
 
     cursor.execute("""
@@ -174,15 +171,7 @@ def stat(message):
                      f"🛒 Jami buyurtmalar: {total_orders}\n"
                      f"💰 Jami tushum: {total_income:,} so'm")
 
-# ================= WEBHOOK (Railway) =================
-@app.route('/', methods=['POST'])
-def webhook():
-    json_str = request.get_data().decode('UTF-8')
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
-    return '', 200
-
+# ================= RUN =================
 if __name__ == "__main__":
-    bot.remove_webhook()
-    bot.set_webhook(url=os.getenv("WEBHOOK_URL"))
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    print("Bot ishga tushdi...")
+    bot.polling(none_stop=True)
