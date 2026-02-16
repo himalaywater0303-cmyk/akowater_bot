@@ -42,6 +42,13 @@ prices = {
     "18.9L": 15000
 }
 
+# ================= MENU =================
+def product_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("5L", "10L", "18.9L")
+    return markup
+
+
 # ================= START =================
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -50,12 +57,14 @@ def start(message):
     user = cursor.fetchone()
 
     if user:
-        bot.send_message(user_id, "💧 Qaytganingizdan xursandmiz!\nMahsulotni tanlang:")
-        ask_product(message)
+        bot.send_message(user_id,
+                         "💧 Qaytganingizdan xursandmiz!\nMahsulotni tanlang:",
+                         reply_markup=product_menu())
     else:
         bot.send_message(user_id,
                          "💧 Assalamu alaykum AKO Water buyurtma botiga xush kelibsiz.\n\nIsmingizni kiriting:")
         bot.register_next_step_handler(message, get_name)
+
 
 # ================= RO‘YXAT =================
 def get_name(message):
@@ -63,34 +72,48 @@ def get_name(message):
     bot.send_message(message.chat.id, "📞 Raqamingizni kiriting:")
     bot.register_next_step_handler(message, lambda m: get_phone(m, name))
 
+
 def get_phone(message, name):
     phone = message.text
     cursor.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?)",
                    (message.chat.id, name, phone))
     conn.commit()
-    ask_product(message)
 
-# ================= PRODUCT =================
-def ask_product(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    markup.add("5L", "10L", "18.9L")
-    bot.send_message(message.chat.id, "💧 Mahsulotni tanlang:", reply_markup=markup)
-    bot.register_next_step_handler(message, get_product)
+    bot.send_message(message.chat.id,
+                     "💧 Mahsulotni tanlang:",
+                     reply_markup=product_menu())
 
-def get_product(message):
-    product = message.text
-    if product not in prices:
-        ask_product(message)
+
+# ================= PRODUCT (GLOBAL) =================
+@bot.message_handler(func=lambda message: message.text in prices)
+def handle_product(message):
+    # Tekshiramiz: user ro‘yxatdan o‘tganmi?
+    cursor.execute("SELECT * FROM users WHERE user_id=?",
+                   (message.chat.id,))
+    user = cursor.fetchone()
+
+    if not user:
+        bot.send_message(message.chat.id,
+                         "Avval ro‘yxatdan o‘ting.\nIsmingizni kiriting:")
+        bot.register_next_step_handler(message, get_name)
         return
 
-    bot.send_message(message.chat.id, "Nechta kerak? (masalan: 2 yoki 2ta)")
-    bot.register_next_step_handler(message, lambda m: get_quantity(m, product))
+    product = message.text
+    bot.send_message(message.chat.id,
+                     "Nechta kerak? (masalan: 2 yoki 2ta)")
+    bot.register_next_step_handler(message,
+                                   lambda m: get_quantity(m, product))
+
 
 # ================= SON =================
 def get_quantity(message, product):
     number = re.findall(r'\d+', message.text)
+
     if not number:
-        bot.send_message(message.chat.id, "Iltimos son kiriting.")
+        bot.send_message(message.chat.id,
+                         "Iltimos son kiriting.")
+        bot.register_next_step_handler(message,
+                                       lambda m: get_quantity(m, product))
         return
 
     quantity = int(number[0])
@@ -134,7 +157,8 @@ def get_quantity(message, product):
                      f"💰 Jami hisob: {total:,} so'm\n\n"
                      "✅ Buyurtmangiz qabul qilindi.\n"
                      "Operatorlarimiz tez orada siz bilan bog'lanishadi.",
-                     reply_markup=types.ReplyKeyboardRemove())
+                     reply_markup=product_menu())
+
 
 # ================= ADMIN BUTTON =================
 @bot.callback_query_handler(func=lambda call: True)
@@ -154,6 +178,7 @@ def callback(call):
 
     conn.commit()
 
+
 # ================= STATISTIKA =================
 @bot.message_handler(commands=['stat'])
 def stat(message):
@@ -163,7 +188,8 @@ def stat(message):
     cursor.execute("SELECT COUNT(*) FROM orders")
     total_orders = cursor.fetchone()[0]
 
-    cursor.execute("SELECT SUM(total) FROM orders WHERE status='Qabul qilindi'")
+    cursor.execute(
+        "SELECT SUM(total) FROM orders WHERE status='Qabul qilindi'")
     total_income = cursor.fetchone()[0] or 0
 
     bot.send_message(ADMIN_ID,
@@ -171,7 +197,8 @@ def stat(message):
                      f"🛒 Jami buyurtmalar: {total_orders}\n"
                      f"💰 Jami tushum: {total_income:,} so'm")
 
+
 # ================= RUN =================
 if __name__ == "__main__":
     print("Bot ishga tushdi...")
-    bot.polling(none_stop=True)
+    bot.infinity_polling()
